@@ -2,6 +2,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Secrets do projeto
+.secrets.act
+
 
 
 # Distribution / packaging

@@ -6,11 +6,11 @@ on:
     branches: [master]
     paths:
       - ".github/workflows/security-pipeline.yml"
+      - "**/*.py"
 
 jobs:
   smoke-test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
@@ -22,3 +22,53 @@ jobs:
           echo "Commit: $GITHUB_SHA"
           pwd
           ls -la
+
+  sast-semgrep:
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      - name: Rodar Semgrep (JSON)
+        run: |
+          semgrep --config auto --metrics=on --json --output semgrep.json .
+          ls -lh semgrep.json
+
+      - name: Enviar Semgrep JSON para DefectDojo
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          RESPONSE_FILE=$(mktemp)
+          HTTP_CODE=$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" -X POST "${DEFECTDOJO_URL}/api/v2/import-scan/" \
+            -H "Authorization: Token ${DEFECTDOJO_API_KEY}" \
+            -F "scan_type=Semgrep JSON Report" \
+            -F "file=@semgrep.json;type=application/json" \
+            -F "product_name=VAmPI" \
+            -F "product_type_name=Research and Development" \
+            -F "engagement_name=DevSecOps Local" \
+            -F "test_title=Semgrep ${GITHUB_SHA}" \
+            -F "auto_create_context=true" \
+            -F "active=true" \
+            -F "verified=true" \
+            -F "close_old_findings=false")
+
+          echo "HTTP: $HTTP_CODE"
+          cat "$RESPONSE_FILE"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
