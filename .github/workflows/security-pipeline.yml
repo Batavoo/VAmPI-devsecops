@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/security-pipeline.yml"
       - "**/*.py"
+      - "requirements.txt"
 
 jobs:
   smoke-test:
@@ -72,3 +73,36 @@ jobs:
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
             exit 1
           fi
+
+  sca-cdxgen:
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalar cdxgen
+        run: npm install -g @cyclonedx/cdxgen
+
+      - name: Gerar SBOM (bom.json)
+        run: |
+          cdxgen -o bom.json .
+          ls -lh bom.json
+
+      - name: Enviar SBOM para Dependency-Track
+        env:
+          DPTRACK_URL: ${{ secrets.DPTRACK_URL }}
+          DPTRACK_API_KEY: ${{ secrets.DPTRACK_API_KEY }}
+          DPTRACK_PROJECT_ID: ${{ secrets.DPTRACK_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          cdxgen --server-url "${DPTRACK_URL}" \
+            --api-key "${DPTRACK_API_KEY}" \
+            --project-id "${DPTRACK_PROJECT_ID}" \
+            -o bom.json .
